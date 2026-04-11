@@ -1,0 +1,7 @@
+<resources>
+    <string name="app_name">LiveShoter</string>
+    <string name="version">v.0.0.1</string>
+    <string name="instructions">1) ...\n2) ...\n3) ...</string>
+    <string name="about">1) ...\n2) ...\n3) ...</string>
+    <integer name="animationMills">300</integer>
+</resources>
