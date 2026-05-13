@@ -55,17 +55,25 @@ fun MainScreen(navController: NavHostController, viewModel: MainViewModel = view
     val instructionPopupShown by viewModel.instructionPopupShown.collectAsState()
     val aboutPopupShown by viewModel.aboutPopupShown.collectAsState()
 
+    val context = LocalContext.current
+
     LaunchedEffect(Unit) {
         viewModel.events.collect {
             event -> when (event) {
                 UiEvent.OpenSettings -> navController.navigate(Screen.Settings.route)
                 UiEvent.OpenStaticEditor -> navController.navigate(Screen.StaticEditor.route)
                 UiEvent.OpenDynamicEditor -> navController.navigate(Screen.DynamicEditor.route)
+                UiEvent.StartCapturing -> {
+                    val activity = context as Activity
+
+                    NotificationHelper.createChannel(context)
+                    NotificationHelper.showNotification(context)
+
+                    activity.moveTaskToBack(true)
+                }
             }
         }
     }
-
-    val context = LocalContext.current
 
     Scaffold(
         topBar = {
@@ -126,18 +134,7 @@ fun MainScreen(navController: NavHostController, viewModel: MainViewModel = view
         ) {
             // Кнопка для активации приложения
             Button(
-                onClick = {
-                    val activity = when (val ctx = context) {
-                        is Activity -> ctx
-                        is android.content.ContextWrapper -> {
-                            var base = ctx.baseContext
-                            while (base is android.content.ContextWrapper && base !is Activity) base = base.baseContext
-                            base as? Activity
-                        }
-                        else -> null
-                    }
-                    activity?.let { viewModel.onStartCapturing(it) }
-                },
+                onClick = { viewModel.onStartCapturing() },
                 modifier = Modifier.fillMaxWidth(0.5f)
             ) {
                 Text("Start Capturing", color = Color.White)

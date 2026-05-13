@@ -21,12 +21,11 @@ class MainViewModel : ViewModel() {
         Log.d("MainScreen", "Opened Settings")
         viewModelScope.launch { _events.emit(UiEvent.OpenSettings) }
     }
-
-    fun onStartCapturing(activity: Activity) {
-        Log.d("MainScreen", "Starting capturing")        // Создаём канал и показываем уведомление из пакета
-        NotificationHelper.createChannel(activity.applicationContext)
-        NotificationHelper.showNotification(activity.applicationContext)        // Сворачиваем приложение
-        activity.moveTaskToBack(true)
+    fun onStartCapturing() {
+        Log.d("MainScreen", "Starting capturing")
+        viewModelScope.launch {
+            _events.emit(UiEvent.StartCapturing)
+        }
     }
 
     fun onOpenStaticEditor() {
@@ -38,13 +37,6 @@ class MainViewModel : ViewModel() {
         Log.d("MainScreen", "Opened DynamicEditor")
         viewModelScope.launch { _events.emit(UiEvent.OpenDynamicEditor) }
     }
-
-    fun onStartCapturing() {
-        Log.d("MainScreen", "Starting capturing")
-
-        TODO()
-    }
-
 
     // Popup инструкции
     private val _instructionPopupShown = MutableStateFlow(false)
@@ -80,4 +72,5 @@ sealed class UiEvent {
     object OpenSettings : UiEvent()
     object OpenStaticEditor : UiEvent()
     object OpenDynamicEditor : UiEvent()
+    object StartCapturing : UiEvent()
 }
