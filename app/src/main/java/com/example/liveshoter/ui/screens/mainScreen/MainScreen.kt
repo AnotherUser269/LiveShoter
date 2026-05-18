@@ -200,7 +200,7 @@ fun GetPopupInstructions(viewModel: MainViewModel) {
         onDismissRequest = { viewModel.dismissInstructionPopup() },
         title = { Text("Instructions") },
         text = { Text(LocalContext.current.getString(R.string.instructions)) },
-        confirmButton = { Button(onClick = { viewModel.dismissInstructionPopup() }) { Text("Understood!") } }
+        confirmButton = { Button(onClick = { viewModel.dismissInstructionPopup() }) { Text("Understood!", color = Color.White) } }
     )
 }
 
@@ -211,6 +211,6 @@ fun GetAboutInstructions(viewModel: MainViewModel) {
         onDismissRequest = { viewModel.dismissAboutPopup() },
         title = { Text("About") },
         text = { Text(LocalContext.current.getString(R.string.about)) },
-        confirmButton = { Button(onClick = { viewModel.dismissAboutPopup() }) { Text("OK") } }
+        confirmButton = { Button(onClick = { viewModel.dismissAboutPopup() }) { Text("OK", color = Color.White) } }
     )
 }

@@ -1,7 +1,7 @@
 <resources>
     <string name="app_name">LiveShoter</string>
-    <string name="version">v.0.0.1</string>
-    <string name="instructions">1) ...\n2) ...\n3) ...</string>
-    <string name="about">1) ...\n2) ...\n3) ...</string>
+    <string name="version">v.0.1.1</string>
+    <string name="instructions">1) Click "Start Capturing"\n2) Then open notifications, click "Capture"\n3) Select the area</string>
+    <string name="about">Samsung Kotlin Course</string>
     <integer name="animationMills">300</integer>
 </resources>

@@ -32,11 +32,12 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.lifecycle.ViewModelProvider
 import androidx.navigation.NavHostController
 import coil.compose.rememberAsyncImagePainter
+import com.example.liveshoter.ui.screens.settingsScreen.SettingsScreenViewModel
 import com.example.liveshoter.ui.theme.uiColor as UIColor
 import kotlin.math.min
-
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -45,6 +46,19 @@ fun StaticEditorScreen(
     vm: StaticEditorViewModel = viewModel()
 ) {
     val context = LocalContext.current
+
+    // Settings ViewModel (для чтения saveUri и fileNamePattern)
+    val settingsVm: SettingsScreenViewModel = viewModel(
+        factory = object : ViewModelProvider.Factory {
+            override fun <T : androidx.lifecycle.ViewModel> create(modelClass: Class<T>): T {
+                if (modelClass.isAssignableFrom(SettingsScreenViewModel::class.java)) {
+                    @Suppress("UNCHECKED_CAST")
+                    return SettingsScreenViewModel(context) as T
+                }
+                throw IllegalArgumentException("Unknown ViewModel class")
+            }
+        }
+    )
 
     // Лаунчер для выбора изображения
     val launcher = rememberLauncherForActivityResult(
@@ -117,13 +131,24 @@ fun StaticEditorScreen(
                         IconButton(onClick = { launcher.launch("image/*") }) {
                             Icon(Icons.Filled.FileOpen, contentDescription = "Open Image")
                         }
-                        // Сохранить
+                        // Сохранить — теперь учитываем настройки (saveUri и fileNamePattern)
                         IconButton(onClick = {
                             val bitmap = vm.exportBitmap(context, intrinsicSize)
                             if (bitmap != null) {
-                                vm.saveToGalleryAsync(context, bitmap) {
-                                    Toast.makeText(context, "Saved", Toast.LENGTH_SHORT).show()
+                                vm.saveToGalleryAsync(
+                                    context,
+                                    bitmap,
+                                    settingsVm.saveUri,
+                                    settingsVm.fileNamePattern
+                                ) { uri ->
+                                    if (uri != null) {
+                                        Toast.makeText(context, "Saved", Toast.LENGTH_SHORT).show()
+                                    } else {
+                                        Toast.makeText(context, "Save failed", Toast.LENGTH_SHORT).show()
+                                    }
                                 }
+                            } else {
+                                Toast.makeText(context, "Nothing to save", Toast.LENGTH_SHORT).show()
                             }
                         }) {
                             Icon(Icons.Filled.Save, contentDescription = "Save")

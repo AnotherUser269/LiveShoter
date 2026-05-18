@@ -13,11 +13,15 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.documentfile.provider.DocumentFile
+import java.text.SimpleDateFormat
+import java.util.Locale
 import androidx.compose.ui.graphics.toArgb
 import androidx.exifinterface.media.ExifInterface
 import androidx.lifecycle.ViewModel
 import kotlinx.coroutines.*
 import androidx.core.graphics.createBitmap
+import androidx.core.net.toUri
 
 /**
  * ViewModel для редактора изображений с возможностью рисования.
@@ -44,7 +48,7 @@ class StaticEditorViewModel : ViewModel() {
 
     // Цвет и размер кисти
     var currentColor by mutableStateOf(Color.Red)
-    var brushSize by mutableStateOf(8f) // Логический размер кисти (масштабируется при экспорте)
+    var brushSize by mutableFloatStateOf(8f) // Логический размер кисти (масштабируется при экспорте)
 
     /** Устанавливает новое изображение и сбрасывает штрихи */
     fun setImage(uri: Uri?) {
@@ -150,35 +154,50 @@ class StaticEditorViewModel : ViewModel() {
         return bmp
     }
 
-    /**
-     * Сохраняет Bitmap в галерею асинхронно.
-     * @param onComplete — вызывается в главном потоке с URI сохранённого изображения (или null при ошибке)
-     */
+    fun generateFileNameFromPattern(pattern: String): String {
+        val time = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(System.currentTimeMillis())
+        return pattern.replace("{time}", time)
+    }
+
     fun saveToGalleryAsync(
         context: Context,
         bitmap: Bitmap,
+        saveUriString: String?,          // из настроек
+        fileNamePattern: String?,        // из настроек
         onComplete: ((Uri?) -> Unit)? = null
     ) {
         ioScope.launch {
             var savedUri: Uri? = null
             try {
-                val name = "editor_${System.currentTimeMillis()}.png"
-                val values = ContentValues().apply {
-                    put(MediaStore.Images.Media.DISPLAY_NAME, name)
-                    put(MediaStore.Images.Media.MIME_TYPE, "image/png")
-                    put(MediaStore.Images.Media.RELATIVE_PATH, "Pictures/LiveShoter")
-                }
+                val name = generateFileNameFromPattern(fileNamePattern ?: "editor_{time}") + ".png"
 
-                val uri = context.contentResolver.insert(
-                    MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
-                    values
-                )
-
-                uri?.let {
-                    context.contentResolver.openOutputStream(it)?.use { stream ->
-                        bitmap.compress(Bitmap.CompressFormat.PNG, 100, stream)
+                if (!saveUriString.isNullOrBlank() && saveUriString.startsWith("content://")) {
+                    // SAF tree uri: создаём файл в выбранной папке
+                    val treeUri = saveUriString.toUri()
+                    val doc = DocumentFile.fromTreeUri(context, treeUri)
+                    val file = doc?.createFile("image/png", name)
+                    file?.uri?.let { uri ->
+                        context.contentResolver.openOutputStream(uri)?.use { stream ->
+                            bitmap.compress(Bitmap.CompressFormat.PNG, 100, stream)
+                        }
+                        savedUri = file.uri
                     }
-                    savedUri = uri
+                } else {
+                    // MediaStore RELATIVE_PATH (включая когда saveUriString = "Pictures" или null)
+                    val relative = if (saveUriString.isNullOrBlank()) "Pictures/LiveShoter" else saveUriString
+                    val values = ContentValues().apply {
+                        put(MediaStore.Images.Media.DISPLAY_NAME, name)
+                        put(MediaStore.Images.Media.MIME_TYPE, "image/png")
+                        put(MediaStore.Images.Media.RELATIVE_PATH, relative)
+                    }
+
+                    val uri = context.contentResolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values)
+                    uri?.let {
+                        context.contentResolver.openOutputStream(it)?.use { stream ->
+                            bitmap.compress(Bitmap.CompressFormat.PNG, 100, stream)
+                        }
+                        savedUri = uri
+                    }
                 }
             } catch (e: Exception) {
                 savedUri = null
@@ -189,6 +208,7 @@ class StaticEditorViewModel : ViewModel() {
             }
         }
     }
+
 
     override fun onCleared() {
         super.onCleared()
