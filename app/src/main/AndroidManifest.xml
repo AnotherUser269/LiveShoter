@@ -1,8 +1,21 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:tools="http://schemas.android.com/tools">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
+    <!-- Разрешение на показ уведомлений (Android 13+) -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <!-- Разрешение на отображение оверлея поверх других окон -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+
+    <!-- Базовое разрешение для запуска foreground-сервисов -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+
+    <!-- Специализированное разрешение для сервиса захвата экрана -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
+
+    <!-- Запись на внешнее хранилище только для Android 9 и ниже -->
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+        android:maxSdkVersion="28" />
 
     <application
         android:allowBackup="true"
@@ -14,21 +27,33 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.LiveShoter">
 
-        <activity
+        <!-- Сервис, постоянно удерживающий MediaProjection активным -->
+        <service
+            android:name=".capture.MediaProjectionService"
+            android:exported="false"
+            android:foregroundServiceType="mediaProjection" />
 
+        <!-- Сервис отрисовки оверлея и выполнения скриншота -->
+        <service
+            android:name=".capture.CaptureOverlayService"
+            android:exported="false" />
+
+        <!-- Главная активность приложения -->
+        <activity
             android:name=".MainActivity"
             android:exported="true"
-            android:label="@string/app_name"
-            android:theme="@style/Theme.LiveShoter">
+            android:label="@string/app_name">
+
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
-
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- Приёмник действий из управляющего уведомления -->
         <receiver
             android:name=".notifications.NotificationActionReceiver"
-            android:exported="true"/>
-    </application>
+            android:exported="false" />
 
+    </application>
 </manifest>
