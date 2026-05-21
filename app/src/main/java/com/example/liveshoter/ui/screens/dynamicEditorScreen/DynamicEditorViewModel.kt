@@ -22,12 +22,11 @@ import kotlinx.coroutines.*
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.*
-import androidx.core.graphics.scale
 import androidx.core.net.toUri
+import androidx.core.graphics.scale
 
 class DynamicEditorViewModel(private val savedStateHandle: SavedStateHandle) : ViewModel() {
 
-    // ---------- Состояние редактора ----------
     var imageUri by mutableStateOf<Uri?>(null)
     var strokes = mutableStateListOf<Stroke>()
     var currentColor by mutableStateOf(Color.Red)
@@ -35,7 +34,6 @@ class DynamicEditorViewModel(private val savedStateHandle: SavedStateHandle) : V
     var displayScale by mutableFloatStateOf(1f)
     var currentPath by mutableStateOf<List<Offset>>(emptyList())
 
-    // ---------- Состояние записи ----------
     enum class RecordingState { Idle, Recording, Processing }
     var recordingState by mutableStateOf(RecordingState.Idle)
     var elapsedSeconds by mutableIntStateOf(0)
@@ -50,11 +48,8 @@ class DynamicEditorViewModel(private val savedStateHandle: SavedStateHandle) : V
     private var videoHeight = 0
     private var recordingFps = 8
 
-    // ---------- Восстановление состояния ----------
     init {
-        // Изображение
         savedStateHandle.get<String>("imageUri")?.let { imageUri = it.toUri() }
-        // Штрихи
         val cnt = savedStateHandle.get<Int>("strokesCount") ?: 0
         strokes.clear()
         for (i in 0 until cnt) {
@@ -68,7 +63,6 @@ class DynamicEditorViewModel(private val savedStateHandle: SavedStateHandle) : V
         }
         savedStateHandle.get<Int>("currentColor")?.let { currentColor = Color(it) }
         savedStateHandle.get<Float>("brushSize")?.let { brushSize = it }
-        // Сохранённое видео (чтобы кнопка Share не пропадала)
         savedStateHandle.get<String>("lastSavedUri")?.let { lastSavedUri = it.toUri() }
     }
 
@@ -86,7 +80,6 @@ class DynamicEditorViewModel(private val savedStateHandle: SavedStateHandle) : V
         savedStateHandle["lastSavedUri"] = lastSavedUri.toString()
     }
 
-    // ---------- Управление рисунком ----------
     fun setImage(uri: Uri?) {
         imageUri = uri
         strokes.clear(); currentPath = emptyList()
@@ -111,7 +104,7 @@ class DynamicEditorViewModel(private val savedStateHandle: SavedStateHandle) : V
     fun undo() { if (strokes.isNotEmpty()) strokes.removeAt(strokes.lastIndex); saveState() }
     fun clear() { strokes.clear(); currentPath = emptyList(); saveState() }
 
-    // ---------- Запись видео ----------
+    // ---------- Исправленная запись видео (размеры выравниваются) ----------
     fun startRecording(context: Context) {
         if (recordingState != RecordingState.Idle) return
         recordingFps = context.getSharedPreferences("settings", Context.MODE_PRIVATE)
@@ -127,6 +120,11 @@ class DynamicEditorViewModel(private val savedStateHandle: SavedStateHandle) : V
             videoHeight = boxSize
             videoWidth = (boxSize * imgAspect).toInt()
         }
+        // Выравниваем размеры: чётные и кратные 16 (требование кодека)
+        videoWidth = (videoWidth + 15) / 16 * 16
+        videoHeight = (videoHeight + 15) / 16 * 16
+        videoWidth = maxOf(videoWidth, 64)
+        videoHeight = maxOf(videoHeight, 64)
         baseBitmap.recycle()
 
         elapsedSeconds = 0
@@ -137,18 +135,26 @@ class DynamicEditorViewModel(private val savedStateHandle: SavedStateHandle) : V
         val timeStamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
         outputFile = File(context.cacheDir, "recording_$timeStamp.mp4")
 
-        mediaRecorder = MediaRecorder().apply {
-            setVideoSource(MediaRecorder.VideoSource.SURFACE)
-            setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
-            setVideoEncoder(MediaRecorder.VideoEncoder.H264)
-            setVideoSize(videoWidth, videoHeight)
-            setVideoFrameRate(recordingFps)
-            setVideoEncodingBitRate(2_500_000)
-            setOutputFile(outputFile!!.absolutePath)
-            prepare()
-            start()
+        try {
+            mediaRecorder = MediaRecorder().apply {
+                setVideoSource(MediaRecorder.VideoSource.SURFACE)
+                setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
+                setVideoEncoder(MediaRecorder.VideoEncoder.H264)
+                setVideoSize(videoWidth, videoHeight)
+                setVideoFrameRate(recordingFps)
+                setVideoEncodingBitRate(2_500_000)
+                setOutputFile(outputFile!!.absolutePath)
+                prepare()
+                start()
+            }
+            inputSurface = mediaRecorder!!.surface
+        } catch (e: Exception) {
+            Log.e("DynamicEditor", "MediaRecorder prepare failed", e)
+            mediaRecorder?.release()
+            mediaRecorder = null
+            recordingState = RecordingState.Idle
+            return
         }
-        inputSurface = mediaRecorder!!.surface
 
         timerJob = viewModelScope.launch {
             while (isActive) { delay(1000); elapsedSeconds++ }
@@ -252,9 +258,7 @@ class DynamicEditorViewModel(private val savedStateHandle: SavedStateHandle) : V
         context.startActivity(Intent.createChooser(intent, "Share video"))
     }
 
-    fun onToastShown() {
-        // Не сбрасываем lastSavedUri, чтобы кнопка Share оставалась
-    }
+    fun onToastShown() { }
 
     private fun saveVideoToGallery(context: Context, file: File): Uri? {
         if (!file.exists()) return null
