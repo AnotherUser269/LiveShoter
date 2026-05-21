@@ -7,11 +7,12 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.*
+import androidx.compose.material3.TopAppBarColors
 import com.example.liveshoter.ui.theme.uiColor as UIColor
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -29,7 +30,6 @@ import java.net.URLDecoder
 @Composable
 fun SettingsScreen(navController: NavHostController) {
     val context = LocalContext.current
-
     val vm: SettingsScreenViewModel = viewModel(
         factory = object : androidx.lifecycle.ViewModelProvider.Factory {
             override fun <T : androidx.lifecycle.ViewModel> create(modelClass: Class<T>): T {
@@ -44,42 +44,52 @@ fun SettingsScreen(navController: NavHostController) {
 
     Scaffold(
         topBar = {
-            TopAppBar(title = {
-                Text("Settings",
-                    color = UIColor,
-                    maxLines = 1,
-                    modifier = Modifier.fillMaxWidth(),
-                    textAlign = TextAlign.Center) },
-            colors = TopAppBarColors(
-                containerColor = Color.Black,
-                scrolledContainerColor = Color.Unspecified,
-                navigationIconContentColor = UIColor,
-                titleContentColor = UIColor,
-                actionIconContentColor = UIColor,
-            ),)
-
+            TopAppBar(
+                title = {
+                    Text(
+                        "Settings",
+                        color = UIColor,
+                        maxLines = 1,
+                        modifier = Modifier.fillMaxWidth(),
+                        textAlign = TextAlign.Center
+                    )
+                },
+                colors = TopAppBarColors(
+                    containerColor = Color.Black,
+                    scrolledContainerColor = Color.Unspecified,
+                    navigationIconContentColor = UIColor,
+                    titleContentColor = UIColor,
+                    actionIconContentColor = UIColor,
+                    subtitleContentColor = Color.Unspecified
+                )
+            )
         },
-
         bottomBar = {
-            BottomAppBar(
-                containerColor = Color.Black,
-                contentColor = UIColor
-            ) {
-                // Кнопки Reset, Save, Back
+            BottomAppBar(containerColor = Color.Black, contentColor = UIColor) {
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
+                    Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(16.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Button(onClick = { navController.popBackStack() }, modifier = Modifier.weight(1f)) {
+                    Button(
+                        onClick = { navController.popBackStack() },
+                        Modifier.weight(1f)
+                    ) {
                         Text("Back", color = Color.White)
                     }
-
-                    Button(onClick = { vm.resetDefaults() }, modifier = Modifier.weight(1f)) {
+                    Button(
+                        onClick = { vm.resetDefaults() },
+                        Modifier.weight(1f)
+                    ) {
                         Text("Reset", color = Color.White)
                     }
-
-                    Button(onClick = { vm.savePreferences(); navController.popBackStack() }, modifier = Modifier.weight(1f)) {
+                    Button(
+                        onClick = {
+                            vm.savePreferences()
+                            navController.popBackStack()
+                        },
+                        Modifier.weight(1f)
+                    ) {
                         Text("Save", color = Color.White)
                     }
                 }
@@ -87,13 +97,13 @@ fun SettingsScreen(navController: NavHostController) {
         }
     ) { innerPadding ->
         Column(
-            modifier = Modifier
+            Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
                 .padding(16.dp)
         ) {
             LazyColumn(
-                modifier = Modifier.weight(1f),
+                Modifier.weight(1f),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
                 // File Name Pattern
@@ -119,35 +129,31 @@ fun SettingsScreen(navController: NavHostController) {
                     }
                 }
 
-                // Save Path с выбором директории
+                // Save Path
                 item {
                     Column {
                         Text("Save Path", color = UIColor)
-
-                        val launcher = rememberLauncherForActivityResult(
-                            ActivityResultContracts.OpenDocumentTree()
-                        ) { uri: Uri? ->
+                        val launcher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri: Uri? ->
                             uri?.let {
                                 vm.updateSaveUri(it.toString())
                                 try {
                                     val flags = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
                                     context.contentResolver.takePersistableUriPermission(it, flags)
-                                } catch (_: Exception) {}
-
+                                } catch (_: Exception) {
+                                }
                                 val docId = DocumentsContract.getTreeDocumentId(it)
                                 val afterColon = docId.substringAfter(':', docId)
-                                val decoded = URLDecoder.decode(afterColon, "UTF-8")
-                                vm.updateSavePathDisplayName(decoded)
+                                vm.updateSavePathDisplayName(URLDecoder.decode(afterColon, "UTF-8"))
                             }
                         }
-
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            val pathValue by remember { derivedStateOf { vm.savePathDisplayName ?: vm.saveUri ?: "" } }
-
+                            val pathValue by remember {
+                                derivedStateOf { vm.savePathDisplayName ?: vm.saveUri ?: "" }
+                            }
                             BasicTextField(
                                 textStyle = LocalTextStyle.current.copy(color = Color.White),
                                 value = pathValue,
-                                onValueChange = { /* display only */ },
+                                onValueChange = {},
                                 singleLine = true,
                                 keyboardOptions = KeyboardOptions.Default.copy(imeAction = ImeAction.Done),
                                 modifier = Modifier
@@ -156,13 +162,30 @@ fun SettingsScreen(navController: NavHostController) {
                                     .border(1.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(4.dp))
                                     .padding(8.dp)
                             )
-
                             Spacer(Modifier.width(8.dp))
-
                             Button(onClick = { launcher.launch(null) }) {
                                 Text("Select Folder", color = Color.White)
                             }
                         }
+                    }
+                }
+
+                // FPS Slider
+                item {
+                    Column {
+                        Text("Recording FPS", color = UIColor)
+                        Slider(
+                            value = vm.fps.toFloat(),
+                            onValueChange = { vm.updateFps(it.toInt()) },
+                            valueRange = 1f..30f,
+                            steps = 14,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        Text(
+                            "${vm.fps} fps",
+                            color = UIColor,
+                            style = MaterialTheme.typography.labelSmall
+                        )
                     }
                 }
             }

@@ -13,88 +13,88 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
-import androidx.documentfile.provider.DocumentFile
-import java.text.SimpleDateFormat
-import java.util.Locale
 import androidx.compose.ui.graphics.toArgb
+import androidx.core.content.FileProvider
+import androidx.core.graphics.createBitmap
+import androidx.core.net.toUri
+import androidx.documentfile.provider.DocumentFile
 import androidx.exifinterface.media.ExifInterface
 import androidx.lifecycle.ViewModel
 import kotlinx.coroutines.*
-import androidx.core.graphics.createBitmap
-import androidx.core.net.toUri
+import java.io.File
+import java.text.SimpleDateFormat
+import java.util.Locale
 
-/**
- * ViewModel для редактора изображений с возможностью рисования.
- *
- * Хранит текущее изображение, нарисованные штрихи и параметры кисти.
- * Предоставляет методы для управления штрихами и экспорта в Bitmap/галерею.
- */
 class StaticEditorViewModel : ViewModel() {
 
     private val viewModelJob = Job()
     private val ioScope = CoroutineScope(Dispatchers.IO + viewModelJob)
 
-    // URI текущего изображения
     var imageUri by mutableStateOf<Uri?>(null)
         private set
 
-    // Список всех сохранённых штрихов (точки нормализованы относительно изображения)
     var strokes = mutableStateListOf<Stroke>()
         private set
 
-    // Текущий рисуемый путь (нормализованные точки)
     var currentPath by mutableStateOf<List<Offset>>(emptyList())
         private set
 
-    // Цвет и размер кисти
     var currentColor by mutableStateOf(Color.Red)
-    var brushSize by mutableFloatStateOf(8f) // Логический размер кисти (масштабируется при экспорте)
+    var brushSize by mutableFloatStateOf(8f)
+    var displayScale by mutableFloatStateOf(1f)
 
-    /** Устанавливает новое изображение и сбрасывает штрихи */
     fun setImage(uri: Uri?) {
         imageUri = uri
         strokes.clear()
         currentPath = emptyList()
     }
 
-    /** Начало нового пути (точка нормализована 0..1) */
     fun startPath(normPoint: Offset) {
         currentPath = listOf(normPoint)
     }
 
-    /** Добавляет точку в текущий путь */
     fun addPoint(normPoint: Offset) {
         currentPath = currentPath + normPoint
     }
 
-    /** Завершение текущего пути и добавление его в список штрихов */
     fun endPath() {
-        if (currentPath.size > 1) {
+        if (currentPath.isNotEmpty()) {
             strokes.add(
                 Stroke(
                     points = currentPath,
                     color = currentColor,
-                    width = brushSize
+                    width = brushSize,
+                    isDot = currentPath.size == 1   // одна точка - флаг isDot
                 )
             )
         }
         currentPath = emptyList()
     }
 
-    /** Удаление последнего штриха */
+    /** Обработка одиночного касания (тап) */
+    fun addTapPoint(normPoint: Offset) {
+        strokes.add(
+            Stroke(
+                points = listOf(normPoint),
+                color = currentColor,
+                width = brushSize,
+                isDot = true
+            )
+        )
+    }
+
     fun undo() {
         if (strokes.isNotEmpty()) strokes.removeAt(strokes.lastIndex)
     }
 
-    /** Полная очистка всех штрихов */
     fun clear() {
         strokes.clear()
         currentPath = emptyList()
     }
 
     /**
-     * Экспорт изображения в Bitmap с учетом EXIF-ориентации и нарисованных штрихов.
-     * @param intrinsicSize — исходный размер изображения (для корректного масштабирования штрихов)
+     * Экспорт в Bitmap с учётом EXIF-поворота и масштаба экрана.
+     * @param intrinsicSize исходный размер изображения (до поворота)
      */
     fun exportBitmap(context: Context, intrinsicSize: Size): Bitmap? {
         val uri = imageUri ?: return null
@@ -102,7 +102,7 @@ class StaticEditorViewModel : ViewModel() {
             BitmapFactory.decodeStream(it)
         } ?: return null
 
-        // Получаем ориентацию EXIF
+        // Определяем поворот из EXIF
         val rotation = context.contentResolver.openInputStream(uri)?.use { stream ->
             val exif = ExifInterface(stream)
             when (exif.getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL)) {
@@ -113,13 +113,14 @@ class StaticEditorViewModel : ViewModel() {
             }
         } ?: 0
 
-        // Поворот изображения при необходимости
         val rotated = if (rotation != 0) {
             val matrix = Matrix().apply { postRotate(rotation.toFloat()) }
             Bitmap.createBitmap(original, 0, 0, original.width, original.height, matrix, true)
         } else original
 
-        if (intrinsicSize.width <= 0f || intrinsicSize.height <= 0f) return null
+        val rw = rotated.width.toFloat()
+        val rh = rotated.height.toFloat()
+        if (rw <= 0f || rh <= 0f) return null
 
         val bmp = createBitmap(rotated.width, rotated.height)
         val canvas = Canvas(bmp)
@@ -132,22 +133,43 @@ class StaticEditorViewModel : ViewModel() {
             strokeJoin = Paint.Join.ROUND
         }
 
-        // Масштабирование нормализованных координат к пикселям
-        val scaleX = rotated.width.toFloat() / intrinsicSize.width
-        val scaleY = rotated.height.toFloat() / intrinsicSize.height
-        val avgScale = (scaleX + scaleY) * 0.5f
+        // Функция пересчёта нормализованной точки (0..1 относительно intrinsicSize) в координаты повёрнутого изображения
+        fun normalizedToRotated(nx: Float, ny: Float): Pair<Float, Float> {
+            return when (rotation) {
+                90  -> Pair(ny, 1f - nx)
+                180 -> Pair(1f - nx, 1f - ny)
+                270 -> Pair(1f - ny, nx)
+                else -> Pair(nx, ny)
+            }
+        }
 
         strokes.forEach { stroke ->
             paint.color = stroke.color.toArgb()
-            paint.strokeWidth = stroke.width * avgScale
-            for (i in 1 until stroke.points.size) {
-                val p1 = stroke.points[i - 1]
-                val p2 = stroke.points[i]
-                val x1 = p1.x * intrinsicSize.width * scaleX
-                val y1 = p1.y * intrinsicSize.height * scaleY
-                val x2 = p2.x * intrinsicSize.width * scaleX
-                val y2 = p2.y * intrinsicSize.height * scaleY
-                canvas.drawLine(x1, y1, x2, y2, paint)
+            val scaledWidth = if (displayScale > 0f) stroke.width / displayScale else stroke.width
+            paint.strokeWidth = scaledWidth
+
+            if (stroke.isDot && stroke.points.size == 1) {
+                // Рисуем точку как круг
+                val (nx, ny) = normalizedToRotated(stroke.points[0].x, stroke.points[0].y)
+                val cx = nx * rw
+                val cy = ny * rh
+                paint.style = Paint.Style.FILL
+                canvas.drawCircle(cx, cy, scaledWidth / 2f, paint)
+                paint.style = Paint.Style.STROKE // возвращаем обратно
+            } else {
+                // Линии
+                for (i in 1 until stroke.points.size) {
+                    val p1 = stroke.points[i - 1]
+                    val p2 = stroke.points[i]
+                    val (nx1, ny1) = normalizedToRotated(p1.x, p1.y)
+                    val (nx2, ny2) = normalizedToRotated(p2.x, p2.y)
+
+                    val x1 = nx1 * rw
+                    val y1 = ny1 * rh
+                    val x2 = nx2 * rw
+                    val y2 = ny2 * rh
+                    canvas.drawLine(x1, y1, x2, y2, paint)
+                }
             }
         }
 
@@ -162,8 +184,8 @@ class StaticEditorViewModel : ViewModel() {
     fun saveToGalleryAsync(
         context: Context,
         bitmap: Bitmap,
-        saveUriString: String?,          // из настроек
-        fileNamePattern: String?,        // из настроек
+        saveUriString: String?,
+        fileNamePattern: String?,
         onComplete: ((Uri?) -> Unit)? = null
     ) {
         ioScope.launch {
@@ -172,7 +194,6 @@ class StaticEditorViewModel : ViewModel() {
                 val name = generateFileNameFromPattern(fileNamePattern ?: "editor_{time}") + ".png"
 
                 if (!saveUriString.isNullOrBlank() && saveUriString.startsWith("content://")) {
-                    // SAF tree uri: создаём файл в выбранной папке
                     val treeUri = saveUriString.toUri()
                     val doc = DocumentFile.fromTreeUri(context, treeUri)
                     val file = doc?.createFile("image/png", name)
@@ -183,14 +204,12 @@ class StaticEditorViewModel : ViewModel() {
                         savedUri = file.uri
                     }
                 } else {
-                    // MediaStore RELATIVE_PATH (включая когда saveUriString = "Pictures" или null)
-                    val relative = if (saveUriString.isNullOrBlank()) "Pictures/LiveShoter" else saveUriString
+                    val relative = saveUriString ?: "Pictures/LiveShoter"
                     val values = ContentValues().apply {
                         put(MediaStore.Images.Media.DISPLAY_NAME, name)
                         put(MediaStore.Images.Media.MIME_TYPE, "image/png")
                         put(MediaStore.Images.Media.RELATIVE_PATH, relative)
                     }
-
                     val uri = context.contentResolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values)
                     uri?.let {
                         context.contentResolver.openOutputStream(it)?.use { stream ->
@@ -199,16 +218,35 @@ class StaticEditorViewModel : ViewModel() {
                         savedUri = uri
                     }
                 }
-            } catch (e: Exception) {
+            } catch (_: Exception) {
                 savedUri = null
             }
-
             withContext(Dispatchers.Main) {
                 onComplete?.invoke(savedUri)
             }
         }
     }
 
+    fun shareBitmap(context: Context, bitmap: Bitmap, intrinsicSize: Size) {
+        try {
+            val file = File(context.cacheDir, "shared_screenshot.png")
+            file.outputStream().use { stream ->
+                bitmap.compress(Bitmap.CompressFormat.PNG, 100, stream)
+            }
+            val uri = FileProvider.getUriForFile(
+                context,
+                context.applicationContext.packageName + ".fileprovider",
+                file
+            )
+            val shareIntent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+                type = "image/png"
+                putExtra(android.content.Intent.EXTRA_STREAM, uri)
+                addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            context.startActivity(android.content.Intent.createChooser(shareIntent, "Share image"))
+        } catch (_: Exception) {
+        }
+    }
 
     override fun onCleared() {
         super.onCleared()
@@ -216,9 +254,9 @@ class StaticEditorViewModel : ViewModel() {
     }
 }
 
-/** Модель штриха: список нормализованных точек, цвет и ширина */
 data class Stroke(
-    val points: List<Offset>, // нормализованные: 0..1
+    val points: List<Offset>, // нормализованные: 0..1 относительно intrinsicSize
     val color: Color,
-    val width: Float
+    val width: Float,
+    val isDot: Boolean = false
 )

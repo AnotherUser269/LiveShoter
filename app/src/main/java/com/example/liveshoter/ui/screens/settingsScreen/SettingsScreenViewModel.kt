@@ -1,45 +1,27 @@
 package com.example.liveshoter.ui.screens.settingsScreen
 
 import android.content.Context
-import androidx.lifecycle.ViewModel
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
-import android.provider.DocumentsContract
-import java.net.URLDecoder
 import androidx.core.content.edit
-import androidx.core.net.toUri
+import androidx.lifecycle.ViewModel
 
-class SettingsScreenViewModel(private val context: Context) : ViewModel() {
+class SettingsScreenViewModel(context: Context) : ViewModel() {
 
     var fileNamePattern by mutableStateOf("screenshot_{time}")
-        private set
-
     var saveUri by mutableStateOf<String?>(null)
-        private set
-
     var savePathDisplayName by mutableStateOf<String?>(null)
-        private set
+    var fps by mutableIntStateOf(8)   // частота кадров для DynamicEditor
 
-    private val prefs by lazy { context.getSharedPreferences("settings", Context.MODE_PRIVATE) }
+    private val prefs = context.getSharedPreferences("settings", Context.MODE_PRIVATE)
 
     init {
-        // Загрузка сохранённых настроек при старте
-        fileNamePattern = prefs.getString("file_name_pattern", fileNamePattern) ?: fileNamePattern
+        fileNamePattern = prefs.getString("file_name_pattern", fileNamePattern)!!
         saveUri = prefs.getString("save_uri", null)
         savePathDisplayName = prefs.getString("save_display_name", null)
-
-        // Если displayName отсутствует, попытаться восстановить из uri
-        saveUri?.let { uriString ->
-            if (savePathDisplayName.isNullOrEmpty()) {
-                try {
-                    val uri = uriString.toUri()
-                    val docId = DocumentsContract.getTreeDocumentId(uri)
-                    val afterColon = docId.substringAfter(':', docId)
-                    savePathDisplayName = URLDecoder.decode(afterColon, "UTF-8")
-                } catch (_: Exception) {  }
-            }
-        }
+        fps = prefs.getInt("fps", 8)
     }
 
     fun updateFileNamePattern(v: String) {
@@ -47,9 +29,9 @@ class SettingsScreenViewModel(private val context: Context) : ViewModel() {
         prefs.edit { putString("file_name_pattern", v) }
     }
 
-    fun updateSaveUri(uriString: String) {
-        saveUri = uriString
-        prefs.edit { putString("save_uri", uriString) }
+    fun updateSaveUri(uri: String) {
+        saveUri = uri
+        prefs.edit { putString("save_uri", uri) }
     }
 
     fun updateSavePathDisplayName(name: String) {
@@ -57,10 +39,16 @@ class SettingsScreenViewModel(private val context: Context) : ViewModel() {
         prefs.edit { putString("save_display_name", name) }
     }
 
+    fun updateFps(value: Int) {
+        fps = value
+        prefs.edit { putInt("fps", value) }
+    }
+
     fun resetDefaults() {
         updateFileNamePattern("screenshot_{time}")
         updateSaveUri("Pictures")
         updateSavePathDisplayName("Pictures")
+        updateFps(8)
     }
 
     fun savePreferences() {
@@ -68,6 +56,7 @@ class SettingsScreenViewModel(private val context: Context) : ViewModel() {
             putString("file_name_pattern", fileNamePattern)
             putString("save_uri", saveUri)
             putString("save_display_name", savePathDisplayName)
+            putInt("fps", fps)
         }
     }
 }
