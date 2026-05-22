@@ -39,6 +39,7 @@ class DynamicEditorViewModel(private val savedStateHandle: SavedStateHandle) : V
     var recordingState by mutableStateOf(RecordingState.Idle)
     var elapsedSeconds by mutableIntStateOf(0)
     var lastSavedUri by mutableStateOf<Uri?>(null)
+    var toastShown by mutableStateOf(false)   // новый флаг
 
     private var mediaRecorder: MediaRecorder? = null
     private var inputSurface: Surface? = null
@@ -49,7 +50,7 @@ class DynamicEditorViewModel(private val savedStateHandle: SavedStateHandle) : V
     private var videoHeight = 0
     private var recordingFps = 8
 
-    // Настройки сохранения, переданные при старте записи
+    // Настройки сохранения
     private var saveUriSetting: String? = null
     private var fileNamePatternSetting: String? = null
 
@@ -70,6 +71,7 @@ class DynamicEditorViewModel(private val savedStateHandle: SavedStateHandle) : V
         savedStateHandle.get<Int>("currentColor")?.let { currentColor = Color(it) }
         savedStateHandle.get<Float>("brushSize")?.let { brushSize = it }
         savedStateHandle.get<String>("lastSavedUri")?.let { lastSavedUri = it.toUri() }
+        toastShown = savedStateHandle.get<Boolean>("toastShown") ?: false
     }
 
     private fun saveState() {
@@ -85,6 +87,7 @@ class DynamicEditorViewModel(private val savedStateHandle: SavedStateHandle) : V
         savedStateHandle["currentColor"] = currentColor.toArgb()
         savedStateHandle["brushSize"] = brushSize
         savedStateHandle["lastSavedUri"] = lastSavedUri.toString()
+        savedStateHandle["toastShown"] = toastShown
     }
 
     fun setImage(uri: Uri?) {
@@ -111,10 +114,12 @@ class DynamicEditorViewModel(private val savedStateHandle: SavedStateHandle) : V
     fun undo() { if (strokes.isNotEmpty()) strokes.removeAt(strokes.lastIndex); saveState() }
     fun clear() { strokes.clear(); currentPath = emptyList(); saveState() }
 
+    // ---------- Запись видео ----------
     fun startRecording(context: Context, saveUri: String?, fileNamePattern: String?) {
         if (recordingState != RecordingState.Idle) return
 
-        // Сохраняем настройки
+        // Сбрасываем флаг тоста при новой записи
+        toastShown = false
         saveUriSetting = saveUri
         fileNamePatternSetting = fileNamePattern
 
@@ -133,21 +138,19 @@ class DynamicEditorViewModel(private val savedStateHandle: SavedStateHandle) : V
             videoHeight = boxSize
             videoWidth = (boxSize * imgAspect).toInt()
         }
-        // Выравниваем размеры: чётные и кратные 16
         videoWidth = (videoWidth + 15) / 16 * 16
         videoHeight = (videoHeight + 15) / 16 * 16
         videoWidth = maxOf(videoWidth, 64)
         videoHeight = maxOf(videoHeight, 64)
 
-        // Масштабируем изображение под выровненные размеры
-        val scaledBase = baseBitmap.scale(videoWidth, videoHeight) // сохраняет пропорции
+        val scaledBase = baseBitmap.scale(videoWidth, videoHeight)
         baseBitmap.recycle()
 
         val scaledW = scaledBase.width.toFloat()
         val scaledH = scaledBase.height.toFloat()
         val imgLeft = (videoWidth - scaledW) / 2f
         val imgTop = (videoHeight - scaledH) / 2f
-        val videoScale = scaledW / originalW   // одинаково для ширины и высоты
+        val videoScale = scaledW / originalW
 
         elapsedSeconds = 0
         lastSavedUri = null
@@ -298,24 +301,21 @@ class DynamicEditorViewModel(private val savedStateHandle: SavedStateHandle) : V
     }
 
     fun onToastShown() {
-        lastSavedUri = null
+        toastShown = true
         saveState()
     }
 
-    // Генерация имени файла по шаблону
     private fun generateFileNameFromPattern(pattern: String?): String {
         val time = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(System.currentTimeMillis())
         val basePattern = pattern ?: "recording_{time}"
         return basePattern.replace("{time}", time) + ".mp4"
     }
 
-    // Сохранение видео с учётом настроек (папка, шаблон имени)
     private suspend fun saveVideoToGallery(context: Context, file: File): Uri? = withContext(Dispatchers.IO) {
         if (!file.exists()) return@withContext null
 
         val name = generateFileNameFromPattern(fileNamePatternSetting)
 
-        // Если указан saveUri (content://), сохраняем через DocumentFile в выбранную папку
         if (!saveUriSetting.isNullOrBlank() && saveUriSetting!!.startsWith("content://")) {
             val treeUri = saveUriSetting!!.toUri()
             val doc = DocumentFile.fromTreeUri(context, treeUri)
@@ -330,7 +330,6 @@ class DynamicEditorViewModel(private val savedStateHandle: SavedStateHandle) : V
             return@withContext null
         }
 
-        // Стандартное сохранение через MediaStore
         val relativePath = if (saveUriSetting.isNullOrBlank()) {
             "${Environment.DIRECTORY_MOVIES}/LiveShoter"
         } else {

@@ -18,6 +18,7 @@ import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.FileOpen
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.UploadFile
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -136,7 +137,7 @@ fun StaticEditorScreen(
                         Icon(Icons.Filled.Clear, contentDescription = "Clear")
                     }
                     IconButton(onClick = { launcher.launch("image/*") }) {
-                        Icon(Icons.Filled.FileOpen, contentDescription = "Open Image")
+                        Icon(Icons.Filled.UploadFile, contentDescription = "Open Image")
                     }
                     IconButton(onClick = {
                         val bitmap = vm.exportBitmap(context)

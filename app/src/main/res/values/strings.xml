@@ -1,7 +1,13 @@
 <resources>
     <string name="app_name">LiveShoter</string>
-    <string name="version">v.0.4.5</string>
-    <string name="instructions">1) Click \"Start Capturing\"\n2) Then open notifications, click \"Capture\"\n3) Select the area\n4) Open Editor and select the photo from Pictures/RawScreenshots\n5) Edit the picture</string>
+    <string name="version">v.0.4.8</string>
+    <string name="instructions">
+        1. Tap “Start Capturing” and allow the requested permissions.\n
+        2. Pull down the notification shade and tap “Capture”.\n
+        3. Drag your finger to select the area you want to capture.\n
+        4. Open your editor and pick the screenshot from Pictures/RawScreenshots.\n
+        5. Edit the image and save your result.
+    </string>
     <string name="about">Samsung Kotlin Course</string>
     <integer name="animationMills">300</integer>
 </resources>

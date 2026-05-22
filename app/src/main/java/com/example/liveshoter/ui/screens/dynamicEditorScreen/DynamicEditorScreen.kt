@@ -92,11 +92,11 @@ fun DynamicEditorScreen(
         Offset(rect.left + pos.x / size.width * rect.width,
             rect.top + pos.y / size.height * rect.height)
 
-    // Показываем Toast при успешном сохранении видео и сразу сбрасываем lastSavedUri
-    LaunchedEffect(vm.lastSavedUri) {
-        vm.lastSavedUri?.let {
+    // Показываем Toast только если есть сохранённое видео и тост ещё не был показан
+    LaunchedEffect(vm.lastSavedUri, vm.toastShown) {
+        if (vm.lastSavedUri != null && !vm.toastShown) {
             Toast.makeText(context, "Video saved", Toast.LENGTH_SHORT).show()
-            vm.onToastShown()   // чтобы тост не появлялся снова при повороте
+            vm.onToastShown()
         }
     }
 
@@ -140,7 +140,7 @@ fun DynamicEditorScreen(
                     }
                     IconButton(onClick = { vm.undo() }) { Icon(Icons.AutoMirrored.Filled.Undo, "Undo") }
                     IconButton(onClick = { vm.clear() }) { Icon(Icons.Filled.Clear, "Clear") }
-                    IconButton(onClick = { launcher.launch("image/*") }) { Icon(Icons.Filled.FileOpen, "Open") }
+                    IconButton(onClick = { launcher.launch("image/*") }) { Icon(Icons.Filled.UploadFile, "Open") }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Black, titleContentColor = UIColor, navigationIconContentColor = UIColor, actionIconContentColor = UIColor)
             )
