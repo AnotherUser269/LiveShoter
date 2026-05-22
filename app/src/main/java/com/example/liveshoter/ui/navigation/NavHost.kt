@@ -1,6 +1,5 @@
 package com.example.liveshoter.ui.navigation
 
-import android.util.Log
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -8,11 +7,9 @@ import androidx.compose.foundation.background
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
-import com.example.liveshoter.R
 import com.example.liveshoter.ui.screens.dynamicEditorScreen.DynamicEditorScreen
 import com.example.liveshoter.ui.screens.mainScreen.MainScreen
 import com.example.liveshoter.ui.screens.settingsScreen.SettingsScreen
@@ -36,12 +33,12 @@ fun AppNavHost(navController: NavHostController) {
             MainScreen(navController)
         }
 
-        // Статический редактор
+        // Статический редактор (StaticEditor)
         composable(Screen.StaticEditor.route) {
             StaticEditorScreen(navController)
         }
 
-        // Динамический редактор
+        // Динамический редактор (DynamicEditor)
         composable(Screen.DynamicEditor.route) {
             DynamicEditorScreen(navController)
         }
@@ -50,7 +47,5 @@ fun AppNavHost(navController: NavHostController) {
         composable(Screen.Settings.route) {
             SettingsScreen(navController)
         }
-
-        //
     }
 }

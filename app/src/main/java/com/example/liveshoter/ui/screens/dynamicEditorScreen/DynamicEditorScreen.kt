@@ -1,5 +1,6 @@
 package com.example.liveshoter.ui.screens.dynamicEditorScreen
 
+import android.content.Context
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -47,6 +48,7 @@ fun DynamicEditorScreen(
     vm: DynamicEditorViewModel = viewModel()
 ) {
     val context = LocalContext.current
+    val prefs = context.getSharedPreferences("settings", Context.MODE_PRIVATE)
 
     // Лаунчер выбора картинки
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
@@ -74,10 +76,19 @@ fun DynamicEditorScreen(
     }
 
     // Преобразования координат экран - изображение
-    fun screenToImage(pos: Offset, rect: Rect, size: Size) =
-        if (rect.contains(pos)) Offset((pos.x - rect.left) / rect.width * size.width,
-            (pos.y - rect.top) / rect.height * size.height) else null
-    fun imageToScreen(pos: Offset, rect: Rect, size: Size) =
+    fun screenToImage(pos: Offset, rect: Rect, size: Size): Offset? {
+        if (!rect.contains(pos)) return null
+        return Offset((pos.x - rect.left) / rect.width * size.width,
+            (pos.y - rect.top) / rect.height * size.height)
+    }
+
+    fun screenToImageClamped(pos: Offset, rect: Rect, size: Size): Offset {
+        val x = ((pos.x - rect.left) / rect.width * size.width).coerceIn(0f, size.width)
+        val y = ((pos.y - rect.top) / rect.height * size.height).coerceIn(0f, size.height)
+        return Offset(x, y)
+    }
+
+    fun imageToScreen(pos: Offset, rect: Rect, size: Size): Offset =
         Offset(rect.left + pos.x / size.width * rect.width,
             rect.top + pos.y / size.height * rect.height)
 
@@ -109,8 +120,12 @@ fun DynamicEditorScreen(
                 actions = {
                     // Кнопка записи / остановки
                     when (vm.recordingState) {
-                        DynamicEditorViewModel.RecordingState.Idle -> IconButton(onClick = { vm.startRecording(context) }) {
-                            Icon(Icons.Filled.FiberManualRecord, "Start", tint = Color.Red)
+                        DynamicEditorViewModel.RecordingState.Idle -> {
+                            val saveUri = prefs.getString("save_uri", null)
+                            val fileNamePattern = prefs.getString("file_name_pattern", null)
+                            IconButton(onClick = { vm.startRecording(context, saveUri, fileNamePattern) }) {
+                                Icon(Icons.Filled.FiberManualRecord, "Start", tint = Color.Red)
+                            }
                         }
                         DynamicEditorViewModel.RecordingState.Recording -> IconButton(onClick = { vm.stopRecording(context) }) {
                             Icon(Icons.Filled.Stop, "Stop", tint = Color.Red)
@@ -167,34 +182,65 @@ fun DynamicEditorScreen(
             Canvas(
                 modifier = Modifier
                     .matchParentSize()
-                    // Drag – рисование линий
+                    // Drag – рисование линий с остановкой на границе и продолжением после возврата
                     .pointerInput(vm.imageUri, displayImageRect, intrinsicSize) {
                         if (vm.imageUri == null || displayImageRect == null || intrinsicSize == Size.Unspecified) return@pointerInput
+
+                        var wasInside = false
+
                         detectDragGestures(
-                            onDragStart = { pos -> screenToImage(pos, displayImageRect, intrinsicSize)?.let {
-                                vm.startPath(Offset(it.x / intrinsicSize.width, it.y / intrinsicSize.height))
-                            }},
-                            onDrag = { change, _ -> screenToImage(change.position, displayImageRect, intrinsicSize)?.let {
-                                vm.addPoint(Offset(it.x / intrinsicSize.width, it.y / intrinsicSize.height))
-                            }},
+                            onDragStart = { pos ->
+                                val imagePos = screenToImage(pos, displayImageRect, intrinsicSize)
+                                if (imagePos != null) {
+                                    vm.startPath(Offset(imagePos.x / intrinsicSize.width, imagePos.y / intrinsicSize.height))
+                                    wasInside = true
+                                } else {
+                                    wasInside = false
+                                }
+                            },
+                            onDrag = { change, _ ->
+                                val insidePoint = screenToImage(change.position, displayImageRect, intrinsicSize)
+                                val inside = insidePoint != null
+
+                                if (inside && !wasInside) {
+                                    vm.addPoint(Offset(insidePoint.x / intrinsicSize.width, insidePoint.y / intrinsicSize.height))
+                                } else if (!inside && wasInside) {
+                                    val clamped = screenToImageClamped(change.position, displayImageRect, intrinsicSize)
+                                    vm.addPoint(Offset(clamped.x / intrinsicSize.width, clamped.y / intrinsicSize.height))
+                                } else if (inside) {
+                                    // Обычное движение внутри
+                                    vm.addPoint(Offset(insidePoint.x / intrinsicSize.width, insidePoint.y / intrinsicSize.height))
+                                }
+                                // если !inside && !wasInside — ничего не делаем
+
+                                wasInside = inside
+                            },
                             onDragEnd = { vm.endPath() }
                         )
                     }
-                    // Tap – одиночная точка
+                    // Tap – одиночная точка (только внутри изображения)
                     .pointerInput(vm.imageUri, displayImageRect, intrinsicSize) {
                         if (vm.imageUri == null || displayImageRect == null || intrinsicSize == Size.Unspecified) return@pointerInput
-                        detectTapGestures { pos -> screenToImage(pos, displayImageRect, intrinsicSize)?.let {
-                            vm.addTapPoint(Offset(it.x / intrinsicSize.width, it.y / intrinsicSize.height))
-                        }}
+                        detectTapGestures { pos ->
+                            val imagePos = screenToImage(pos, displayImageRect, intrinsicSize)
+                            if (imagePos != null) {
+                                vm.addTapPoint(Offset(imagePos.x / intrinsicSize.width, imagePos.y / intrinsicSize.height))
+                            }
+                        }
                     }
             ) {
                 val rect = displayImageRect ?: return@Canvas
+                val currentScale = if (vm.displayScale > 0f) vm.displayScale else 1f
+
                 // Рисуем все завершённые штрихи
                 for (stroke in vm.strokes) {
+                    val baseWidth = if (stroke.displayScale > 0f) stroke.width / stroke.displayScale else stroke.width
+                    val screenWidth = baseWidth * currentScale
+
                     if (stroke.isDot) {
                         val pImg = Offset(stroke.points[0].x * intrinsicSize.width, stroke.points[0].y * intrinsicSize.height)
                         val center = imageToScreen(pImg, rect, intrinsicSize)
-                        drawCircle(stroke.color, radius = stroke.width / 2f, center = center, style = Fill)
+                        drawCircle(stroke.color, radius = screenWidth / 2f, center = center, style = Fill)
                     } else if (stroke.points.size >= 2) {
                         val path = Path().apply {
                             stroke.points.forEachIndexed { i, p ->
@@ -202,14 +248,17 @@ fun DynamicEditorScreen(
                                 if (i == 0) moveTo(sp.x, sp.y) else lineTo(sp.x, sp.y)
                             }
                         }
-                        drawPath(path, stroke.color, style = Stroke(width = stroke.width))
+                        drawPath(path, stroke.color, style = Stroke(width = screenWidth))
                     }
                 }
                 // Текущий рисуемый путь
                 if (vm.currentPath.isNotEmpty()) {
+                    val baseWidth = if (currentScale > 0f) vm.brushSize / currentScale else vm.brushSize
+                    val screenWidth = baseWidth * currentScale   // равно vm.brushSize
+
                     if (vm.currentPath.size == 1) {
                         val pImg = Offset(vm.currentPath[0].x * intrinsicSize.width, vm.currentPath[0].y * intrinsicSize.height)
-                        drawCircle(vm.currentColor, radius = vm.brushSize / 2f, center = imageToScreen(pImg, rect, intrinsicSize), style = Fill)
+                        drawCircle(vm.currentColor, radius = screenWidth / 2f, center = imageToScreen(pImg, rect, intrinsicSize), style = Fill)
                     } else {
                         val path = Path().apply {
                             vm.currentPath.forEachIndexed { i, p ->
@@ -217,7 +266,7 @@ fun DynamicEditorScreen(
                                 if (i == 0) moveTo(sp.x, sp.y) else lineTo(sp.x, sp.y)
                             }
                         }
-                        drawPath(path, vm.currentColor, style = Stroke(width = vm.brushSize))
+                        drawPath(path, vm.currentColor, style = Stroke(width = screenWidth))
                     }
                 }
             }

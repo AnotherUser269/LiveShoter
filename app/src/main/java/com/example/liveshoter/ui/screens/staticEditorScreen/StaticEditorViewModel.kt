@@ -11,7 +11,6 @@ import android.net.Uri
 import android.provider.MediaStore
 import androidx.compose.runtime.*
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.core.content.FileProvider
@@ -64,21 +63,22 @@ class StaticEditorViewModel : ViewModel() {
                     points = currentPath,
                     color = currentColor,
                     width = brushSize,
-                    isDot = currentPath.size == 1   // одна точка - флаг isDot
+                    isDot = currentPath.size == 1,
+                    displayScale = displayScale
                 )
             )
         }
         currentPath = emptyList()
     }
 
-    /** Обработка одиночного касания (тап) */
     fun addTapPoint(normPoint: Offset) {
         strokes.add(
             Stroke(
                 points = listOf(normPoint),
                 color = currentColor,
                 width = brushSize,
-                isDot = true
+                isDot = true,
+                displayScale = displayScale
             )
         )
     }
@@ -92,17 +92,14 @@ class StaticEditorViewModel : ViewModel() {
         currentPath = emptyList()
     }
 
-    /**
-     * Экспорт в Bitmap с учётом EXIF-поворота и масштаба экрана.
-     * @param intrinsicSize исходный размер изображения (до поворота)
-     */
-    fun exportBitmap(context: Context, intrinsicSize: Size): Bitmap? {
+    fun exportBitmap(context: Context): Bitmap? {
         val uri = imageUri ?: return null
+
         val original = context.contentResolver.openInputStream(uri)?.use {
             BitmapFactory.decodeStream(it)
         } ?: return null
 
-        // Определяем поворот из EXIF
+        // Определяем EXIF-поворот только для разворота изображения
         val rotation = context.contentResolver.openInputStream(uri)?.use { stream ->
             val exif = ExifInterface(stream)
             when (exif.getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL)) {
@@ -133,41 +130,29 @@ class StaticEditorViewModel : ViewModel() {
             strokeJoin = Paint.Join.ROUND
         }
 
-        // Функция пересчёта нормализованной точки (0..1 относительно intrinsicSize) в координаты повёрнутого изображения
-        fun normalizedToRotated(nx: Float, ny: Float): Pair<Float, Float> {
-            return when (rotation) {
-                90  -> Pair(ny, 1f - nx)
-                180 -> Pair(1f - nx, 1f - ny)
-                270 -> Pair(1f - ny, nx)
-                else -> Pair(nx, ny)
-            }
-        }
-
         strokes.forEach { stroke ->
             paint.color = stroke.color.toArgb()
-            val scaledWidth = if (displayScale > 0f) stroke.width / displayScale else stroke.width
+
+            // Используем масштаб, с которым штрих был создан
+            val strokeScale = if (stroke.displayScale > 0f) stroke.displayScale else 1f
+            val scaledWidth = stroke.width / strokeScale
             paint.strokeWidth = scaledWidth
 
             if (stroke.isDot && stroke.points.size == 1) {
-                // Рисуем точку как круг
-                val (nx, ny) = normalizedToRotated(stroke.points[0].x, stroke.points[0].y)
-                val cx = nx * rw
-                val cy = ny * rh
+                val p = stroke.points[0]
+                val cx = p.x * rw
+                val cy = p.y * rh
                 paint.style = Paint.Style.FILL
                 canvas.drawCircle(cx, cy, scaledWidth / 2f, paint)
-                paint.style = Paint.Style.STROKE // возвращаем обратно
-            } else {
-                // Линии
+                paint.style = Paint.Style.STROKE
+            } else if (stroke.points.size >= 2) {
                 for (i in 1 until stroke.points.size) {
                     val p1 = stroke.points[i - 1]
                     val p2 = stroke.points[i]
-                    val (nx1, ny1) = normalizedToRotated(p1.x, p1.y)
-                    val (nx2, ny2) = normalizedToRotated(p2.x, p2.y)
-
-                    val x1 = nx1 * rw
-                    val y1 = ny1 * rh
-                    val x2 = nx2 * rw
-                    val y2 = ny2 * rh
+                    val x1 = p1.x * rw
+                    val y1 = p1.y * rh
+                    val x2 = p2.x * rw
+                    val y2 = p2.y * rh
                     canvas.drawLine(x1, y1, x2, y2, paint)
                 }
             }
@@ -227,7 +212,7 @@ class StaticEditorViewModel : ViewModel() {
         }
     }
 
-    fun shareBitmap(context: Context, bitmap: Bitmap, intrinsicSize: Size) {
+    fun shareBitmap(context: Context, bitmap: Bitmap) {
         try {
             val file = File(context.cacheDir, "shared_screenshot.png")
             file.outputStream().use { stream ->
@@ -255,8 +240,9 @@ class StaticEditorViewModel : ViewModel() {
 }
 
 data class Stroke(
-    val points: List<Offset>, // нормализованные: 0..1 относительно intrinsicSize
+    val points: List<Offset>, // нормализованные координаты (0..1 относительно intrinsicSize)
     val color: Color,
-    val width: Float,
-    val isDot: Boolean = false
+    val width: Float,          // экранная ширина (brushSize)
+    val isDot: Boolean = false,
+    val displayScale: Float = 1f // масштаб экрана на момент создания штриха
 )

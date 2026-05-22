@@ -77,7 +77,7 @@ fun StaticEditorScreen(
         else -> Size.Unspecified
     }
 
-    // Прямоугольник, в котором отображается изображение
+    // Прямоугольник отображения изображения с сохранением пропорций
     val displayImageRect: Rect? = remember(containerSize, intrinsicSize) {
         if (containerSize == IntSize.Zero || intrinsicSize == Size.Unspecified) return@remember null
         if (intrinsicSize.width <= 0f || intrinsicSize.height <= 0f) return@remember null
@@ -95,12 +95,21 @@ fun StaticEditorScreen(
         Rect(left, top, left + scaledWidth, top + scaledHeight)
     }
 
+    // Возвращает координаты в системе изображения (0..intrinsicSize), если точка внутри rect, иначе null
     fun screenToImage(pos: Offset, rect: Rect, intrinsicSize: Size): Offset? {
         if (!rect.contains(pos)) return null
-        return Offset(
-            x = (pos.x - rect.left) / rect.width * intrinsicSize.width,
-            y = (pos.y - rect.top) / rect.height * intrinsicSize.height
-        )
+        val x = (pos.x - rect.left) / rect.width * intrinsicSize.width
+        val y = (pos.y - rect.top) / rect.height * intrinsicSize.height
+        return Offset(x, y)
+    }
+
+    // Принудительно ограничивает координаты границами изображения (clamp)
+    fun screenToImageClamped(pos: Offset, rect: Rect, intrinsicSize: Size): Offset {
+        val x = ((pos.x - rect.left) / rect.width * intrinsicSize.width)
+            .coerceIn(0f, intrinsicSize.width)
+        val y = ((pos.y - rect.top) / rect.height * intrinsicSize.height)
+            .coerceIn(0f, intrinsicSize.height)
+        return Offset(x, y)
     }
 
     fun imageToScreen(pos: Offset, rect: Rect, intrinsicSize: Size): Offset {
@@ -130,7 +139,7 @@ fun StaticEditorScreen(
                         Icon(Icons.Filled.FileOpen, contentDescription = "Open Image")
                     }
                     IconButton(onClick = {
-                        val bitmap = vm.exportBitmap(context, intrinsicSize)
+                        val bitmap = vm.exportBitmap(context)
                         if (bitmap != null) {
                             vm.saveToGalleryAsync(
                                 context, bitmap,
@@ -149,9 +158,9 @@ fun StaticEditorScreen(
                         Icon(Icons.Filled.Save, contentDescription = "Save")
                     }
                     IconButton(onClick = {
-                        val bitmap = vm.exportBitmap(context, intrinsicSize)
+                        val bitmap = vm.exportBitmap(context)
                         if (bitmap != null) {
-                            vm.shareBitmap(context, bitmap, intrinsicSize)
+                            vm.shareBitmap(context, bitmap)
                         } else {
                             Toast.makeText(context, "Nothing to share", Toast.LENGTH_SHORT).show()
                         }
@@ -214,56 +223,88 @@ fun StaticEditorScreen(
             Canvas(
                 modifier = Modifier
                     .matchParentSize()
-                    // Drag – рисование линий
+                    // Drag – рисование линий с остановкой на границе и продолжением после возврата
                     .pointerInput(vm.imageUri, displayImageRect, intrinsicSize) {
                         if (vm.imageUri == null || displayImageRect == null || intrinsicSize == Size.Unspecified)
                             return@pointerInput
 
+                        var wasInside = false
+
                         detectDragGestures(
                             onDragStart = { screenPos ->
                                 val imagePos = screenToImage(screenPos, displayImageRect, intrinsicSize)
-                                imagePos?.let {
-                                    vm.startPath(Offset(it.x / intrinsicSize.width, it.y / intrinsicSize.height))
+                                if (imagePos != null) {
+                                    vm.startPath(
+                                        Offset(imagePos.x / intrinsicSize.width, imagePos.y / intrinsicSize.height)
+                                    )
+                                    wasInside = true
+                                } else {
+                                    wasInside = false
                                 }
                             },
                             onDrag = { change, _ ->
-                                val imagePos = screenToImage(change.position, displayImageRect, intrinsicSize)
-                                imagePos?.let {
-                                    vm.addPoint(Offset(it.x / intrinsicSize.width, it.y / intrinsicSize.height))
+                                val insidePoint = screenToImage(change.position, displayImageRect, intrinsicSize)
+                                val inside = insidePoint != null
+
+                                if (inside && !wasInside) {
+                                    vm.addPoint(
+                                        Offset(insidePoint.x / intrinsicSize.width, insidePoint.y / intrinsicSize.height)
+                                    )
+                                } else if (!inside && wasInside) {
+                                    val clamped = screenToImageClamped(change.position, displayImageRect, intrinsicSize)
+                                    vm.addPoint(
+                                        Offset(clamped.x / intrinsicSize.width, clamped.y / intrinsicSize.height)
+                                    )
+                                } else if (inside) {
+                                    // Обычное движение внутри
+                                    vm.addPoint(
+                                        Offset(insidePoint.x / intrinsicSize.width, insidePoint.y / intrinsicSize.height)
+                                    )
                                 }
+
+                                wasInside = inside
                             },
-                            onDragEnd = { vm.endPath() }
+                            onDragEnd = {
+                                vm.endPath()
+                            }
                         )
                     }
-                    // Tap – одиночная точка
+                    // Tap – одиночная точка (только внутри изображения)
                     .pointerInput(vm.imageUri, displayImageRect, intrinsicSize) {
                         if (vm.imageUri == null || displayImageRect == null || intrinsicSize == Size.Unspecified)
                             return@pointerInput
 
                         detectTapGestures { screenPos ->
                             val imagePos = screenToImage(screenPos, displayImageRect, intrinsicSize)
-                            imagePos?.let {
-                                vm.addTapPoint(Offset(it.x / intrinsicSize.width, it.y / intrinsicSize.height))
+                            if (imagePos != null) {
+                                vm.addTapPoint(
+                                    Offset(imagePos.x / intrinsicSize.width, imagePos.y / intrinsicSize.height)
+                                )
                             }
                         }
                     }
             ) {
                 val rect = displayImageRect ?: return@Canvas
+                val currentScale = if (vm.displayScale > 0f) vm.displayScale else 1f
 
-                // Рисуем сохранённые штрихи
+                // Сохранённые штрихи
                 vm.strokes.forEach { stroke ->
+                    val baseWidth = if (stroke.displayScale > 0f) stroke.width / stroke.displayScale else stroke.width
+                    val screenWidth = baseWidth * currentScale
+
                     if (stroke.isDot && stroke.points.size == 1) {
-                        // Точка
-                        val pImage = Offset(stroke.points[0].x * intrinsicSize.width, stroke.points[0].y * intrinsicSize.height)
+                        val pImage = Offset(
+                            stroke.points[0].x * intrinsicSize.width,
+                            stroke.points[0].y * intrinsicSize.height
+                        )
                         val center = imageToScreen(pImage, rect, intrinsicSize)
                         drawCircle(
                             color = stroke.color,
-                            radius = stroke.width / 2f,
+                            radius = screenWidth / 2f,
                             center = center,
                             style = Fill
                         )
                     } else if (stroke.points.size >= 2) {
-                        // Линия
                         val path = Path().apply {
                             stroke.points.forEachIndexed { index, pNorm ->
                                 val pImage = Offset(pNorm.x * intrinsicSize.width, pNorm.y * intrinsicSize.height)
@@ -272,19 +313,24 @@ fun StaticEditorScreen(
                                 else lineTo(screenP.x, screenP.y)
                             }
                         }
-                        drawPath(path, stroke.color, style = Stroke(width = stroke.width))
+                        drawPath(path, stroke.color, style = Stroke(width = screenWidth))
                     }
                 }
 
-                // Текущий путь
+                // Текущий рисуемый путь
                 if (vm.currentPath.isNotEmpty()) {
+                    val baseWidth = if (currentScale > 0f) vm.brushSize / currentScale else vm.brushSize
+                    val screenWidth = baseWidth * currentScale
+
                     if (vm.currentPath.size == 1) {
-                        // Предпросмотр одиночной точки
-                        val pImage = Offset(vm.currentPath[0].x * intrinsicSize.width, vm.currentPath[0].y * intrinsicSize.height)
+                        val pImage = Offset(
+                            vm.currentPath[0].x * intrinsicSize.width,
+                            vm.currentPath[0].y * intrinsicSize.height
+                        )
                         val center = imageToScreen(pImage, rect, intrinsicSize)
                         drawCircle(
                             color = vm.currentColor,
-                            radius = vm.brushSize / 2f,
+                            radius = screenWidth / 2f,
                             center = center,
                             style = Fill
                         )
@@ -297,7 +343,7 @@ fun StaticEditorScreen(
                                 else lineTo(screenP.x, screenP.y)
                             }
                         }
-                        drawPath(path, vm.currentColor, style = Stroke(width = vm.brushSize))
+                        drawPath(path, vm.currentColor, style = Stroke(width = screenWidth))
                     }
                 }
             }
