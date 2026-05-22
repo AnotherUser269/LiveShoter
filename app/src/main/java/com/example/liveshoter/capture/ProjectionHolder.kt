@@ -31,7 +31,6 @@ object ProjectionHolder {
             .putInt(KEY_RESULT_CODE, resultCode)
             .putString(KEY_RESULT_DATA, dataUri)
             .apply()
-
         Log.d("ProjectionHolder", "Saved permission: code=$resultCode")
     }
 
@@ -66,7 +65,7 @@ object ProjectionHolder {
     }
 
     fun clear() {
-        Log.d("ProjectionHolder", "clear() called, stopping projection if exists")
+        Log.d("ProjectionHolder", "clear() called")
         mediaProjection?.stop()
         mediaProjection = null
     }

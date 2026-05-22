@@ -11,16 +11,8 @@ import android.os.IBinder
 import android.view.Gravity
 import android.view.WindowManager
 import android.widget.Toast
-import androidx.annotation.RequiresApi
 import com.example.liveshoter.MainActivity
 
-/**
- * Сервис, который поверх всех окон показывает оверлей [CaptureOverlay] для выбора
- * прямоугольной области экрана, выполняет её скриншот и сохраняет результат.
- *
- * Запускается как обычный сервис (не foreground). Предполагает, что
- * [ProjectionHolder.mediaProjection] уже создан сторонним сервисом.
- */
 class CaptureOverlayService : Service() {
 
     private lateinit var windowManager: WindowManager
@@ -28,11 +20,9 @@ class CaptureOverlayService : Service() {
 
     override fun onBind(intent: Intent?): IBinder? = null
 
-    @RequiresApi(Build.VERSION_CODES.O)
     override fun onCreate() {
         super.onCreate()
 
-        // Проекция должна быть активна; иначе завершаемся с сообщением
         if (!ProjectionHolder.hasProjection()) {
             Toast.makeText(
                 this,
@@ -47,9 +37,6 @@ class CaptureOverlayService : Service() {
         showOverlay()
     }
 
-    /**
-     * Добавляет [CaptureOverlay] в оконный менеджер в качестве системного оверлея.
-     */
     private fun showOverlay() {
         if (overlay != null) return
 
@@ -77,11 +64,6 @@ class CaptureOverlayService : Service() {
         }
     }
 
-    /**
-     * Убирает оверлей, выполняет захват выбранной области [rect]
-     * и сохраняет скриншот через [ImageSaver]. После завершения возвращает
-     * приложение на передний план и останавливает сервис.
-     */
     private fun captureAndSave(rect: Rect) {
         removeOverlay()
 
@@ -98,9 +80,9 @@ class CaptureOverlayService : Service() {
                     bitmap, rect.left, rect.top,
                     rect.width(), rect.height()
                 )
-                val file = ImageSaver.saveBitmap(this, cropped)
-                if (file != null) {
-                    Toast.makeText(this, "Saved: ${file.name}", Toast.LENGTH_SHORT).show()
+                val fileName = ImageSaver.saveBitmap(this, cropped)
+                if (fileName != null) {
+                    Toast.makeText(this, "Saved: $fileName", Toast.LENGTH_SHORT).show()
                 } else {
                     Toast.makeText(this, "Failed to save image", Toast.LENGTH_LONG).show()
                 }
@@ -108,7 +90,6 @@ class CaptureOverlayService : Service() {
                 Toast.makeText(this, "Error: ${e.message}", Toast.LENGTH_LONG).show()
             }
 
-            // Возвращаем основную активность на передний план
             val intent = Intent(this, MainActivity::class.java).apply {
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
             }
@@ -117,9 +98,6 @@ class CaptureOverlayService : Service() {
         }
     }
 
-    /**
-     * Удаляет оверлей из оконного менеджера.
-     */
     private fun removeOverlay() {
         overlay?.let {
             try {

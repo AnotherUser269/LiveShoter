@@ -11,30 +11,23 @@ import java.io.FileOutputStream
 import java.text.SimpleDateFormat
 import java.util.*
 
-/**
- * Сохраняет [Bitmap] в общедоступную папку Pictures/RawScreenshots.
- * На Android 10+ используется MediaStore, на более ранних версиях —
- * прямое сохранение на внешнее хранилище (требуется разрешение WRITE_EXTERNAL_STORAGE).
- */
 object ImageSaver {
 
     /**
-     * Сохраняет переданный [bitmap] в формате PNG.
-     *
-     * @return [File] с информацией о сохранённом изображении либо null в случае ошибки.
+     * Сохраняет bitmap. Имя при успехе, иначе null
      */
-    fun saveBitmap(context: Context, bitmap: Bitmap): File? {
+    fun saveBitmap(context: Context, bitmap: Bitmap): String? {
         val timeStamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
         val displayName = "Screenshot_$timeStamp.png"
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            return saveWithMediaStore(context, bitmap, displayName)
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            saveWithMediaStore(context, bitmap, displayName)
         } else {
-            return saveDirectlyToFile(displayName, bitmap)
+            saveDirectlyToFile(displayName, bitmap)
         }
     }
 
-    private fun saveWithMediaStore(context: Context, bitmap: Bitmap, displayName: String): File? {
+    private fun saveWithMediaStore(context: Context, bitmap: Bitmap, displayName: String): String? {
         val contentValues = ContentValues().apply {
             put(MediaStore.Images.Media.DISPLAY_NAME, displayName)
             put(MediaStore.Images.Media.MIME_TYPE, "image/png")
@@ -53,15 +46,14 @@ object ImageSaver {
             contentValues.clear()
             contentValues.put(MediaStore.Images.Media.IS_PENDING, 0)
             resolver.update(uri, contentValues, null, null)
-            // Возвращается условный File, реальный путь можно получить через MediaStore
-            return File(uri.toString())
+            return displayName
         } catch (e: Exception) {
             resolver.delete(uri, null, null)
             return null
         }
     }
 
-    private fun saveDirectlyToFile(displayName: String, bitmap: Bitmap): File? {
+    private fun saveDirectlyToFile(displayName: String, bitmap: Bitmap): String? {
         val dir = File(
             Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES),
             "RawScreenshots"
@@ -73,7 +65,7 @@ object ImageSaver {
             FileOutputStream(file).use { outputStream ->
                 bitmap.compress(Bitmap.CompressFormat.PNG, 100, outputStream)
             }
-            file
+            displayName
         } catch (e: Exception) {
             null
         }
